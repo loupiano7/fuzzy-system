@@ -18,6 +18,7 @@ env:
   GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
   KUSTOMIZE_PATH: ${{ vars.KUSTOMIZE_PATH }}
   KUBERNETES_NAMESPACE: ${{ vars.KUBERNETES_NAMESPACE }}
+  KUSTOMIZE_IMAGE: ${{ vars.KUSTOMIZE_IMAGE }}
 
 jobs:
   setup-build-publish-deploy:
@@ -111,6 +112,7 @@ jobs:
         run: |-
           set -euo pipefail
           DOCKER_TAG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
+          SOURCE_IMAGE="${KUSTOMIZE_IMAGE:-${IMAGE}}"
           RENDERED_MANIFEST="${RUNNER_TEMP}/gke-rendered-manifest.yaml"
           WORK_DIR="$(mktemp -d)"
           TARGET_NAMESPACE="${KUBERNETES_NAMESPACE:-default}"
@@ -129,7 +131,7 @@ jobs:
           tar --exclude=.git -cf - . | tar -xf - -C "${WORK_DIR}"
           cd "${WORK_DIR}"
 
-          kustomize edit set image "${IMAGE}=${DOCKER_TAG}"
+          kustomize edit set image "${SOURCE_IMAGE}=${DOCKER_TAG}"
           kustomize build . > "${RENDERED_MANIFEST}"
           kubectl apply --namespace "${TARGET_NAMESPACE}" -f "${RENDERED_MANIFEST}"
 
