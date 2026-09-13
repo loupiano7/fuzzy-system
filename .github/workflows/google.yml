@@ -114,9 +114,8 @@ jobs:
           DOCKER_TAG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
           SOURCE_IMAGE="${KUSTOMIZE_IMAGE:-${IMAGE}}"
           RENDERED_MANIFEST="${RUNNER_TEMP}/gke-rendered-manifest.yaml"
-          WORK_DIR="$(mktemp -d)"
           TARGET_NAMESPACE="${KUBERNETES_NAMESPACE:-}"
-          REPO_ROOT="${GITHUB_WORKSPACE}"
+          REPO_ROOT="$(realpath "${GITHUB_WORKSPACE}")"
           KUSTOMIZE_DIR="${KUSTOMIZE_PATH:-.}"
 
           if [[ ! -d "${KUSTOMIZE_DIR}" ]]; then
@@ -132,21 +131,30 @@ jobs:
             exit 1
           fi
 
+          if [[ -L "${KUSTOMIZE_DIR}" ]]; then
+            echo "::error::KUSTOMIZE_PATH must not be a symlink."
+            exit 1
+          fi
+
           cd "${ABS_KUSTOMIZE_DIR}"
-          if [[ ! -f "kustomization.yaml" && ! -f "kustomization.yml" ]]; then
+          if [[ -f "kustomization.yaml" ]]; then
+            KUSTOMIZATION_FILE="kustomization.yaml"
+          elif [[ -f "kustomization.yml" ]]; then
+            KUSTOMIZATION_FILE="kustomization.yml"
+          else
             echo "::error::Missing kustomization.yaml or kustomization.yml in ${PWD}"
             exit 1
           fi
 
-          tar --exclude=.git -C "${REPO_ROOT}" -cf - . | tar -xf - -C "${WORK_DIR}"
-          cd "${WORK_DIR}/${RELATIVE_KUSTOMIZE_DIR}"
+          cp "${KUSTOMIZATION_FILE}" "${KUSTOMIZATION_FILE}.bak"
+          trap 'mv -f "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"' EXIT
 
           kustomize edit set image "${SOURCE_IMAGE}=${DOCKER_TAG}"
           kustomize build . > "${RENDERED_MANIFEST}"
           kubectl apply -f "${RENDERED_MANIFEST}"
 
           if [[ -z "${TARGET_NAMESPACE}" ]]; then
-            mapfile -t DEPLOYMENT_NAMESPACES < <(kubectl get deployment "${DEPLOYMENT_NAME}" -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' | sed '/^$/d' | sort -u)
+            mapfile -t DEPLOYMENT_NAMESPACES < <(kubectl get deployments -A --no-headers | awk -v name="${DEPLOYMENT_NAME}" '$2==name {print $1}' | sort -u)
             if [[ "${#DEPLOYMENT_NAMESPACES[@]}" -eq 0 ]]; then
               echo "::error::Deployment ${DEPLOYMENT_NAME} not found after apply."
               exit 1
