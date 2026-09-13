@@ -14,8 +14,8 @@ The workflow at `.github/workflows/google.yml` expects the following repository 
 - `IMAGE_NAME`
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - `GCP_SERVICE_ACCOUNT`
-- `KUBERNETES_NAMESPACE`
 - `KUSTOMIZE_PATH` (optional, defaults to `.`)
+- `KUBERNETES_NAMESPACE` (optional; if omitted, workflow auto-detects the deployment namespace when unambiguous)
 - `KUSTOMIZE_IMAGE` (optional, defaults to `IMAGE_NAME`; set this to the existing image reference Kustomize should replace)
 
 Required repository contents for deployment:
