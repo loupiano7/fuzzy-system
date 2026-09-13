@@ -19,4 +19,4 @@ The workflow at `.github/workflows/google.yml` expects the following repository 
 Required repository contents for deployment:
 
 - A `Dockerfile` in the repository root
-- Kubernetes manifests managed by Kustomize in `KUSTOMIZE_PATH` (with `kustomization.yaml`)
+- Kubernetes manifests managed by Kustomize in `KUSTOMIZE_PATH` (with `kustomization.yaml` or `kustomization.yml`)
