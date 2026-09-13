@@ -114,6 +114,7 @@ jobs:
           DOCKER_TAG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
           SOURCE_IMAGE="${KUSTOMIZE_IMAGE:-${IMAGE}}"
           RENDERED_MANIFEST="${RUNNER_TEMP}/gke-rendered-manifest.yaml"
+          WORK_DIR="$(mktemp -d)"
           TARGET_NAMESPACE="${KUBERNETES_NAMESPACE:-}"
           REPO_ROOT="$(realpath "${GITHUB_WORKSPACE}")"
           KUSTOMIZE_DIR="${KUSTOMIZE_PATH:-.}"
@@ -124,9 +125,7 @@ jobs:
           fi
 
           ABS_KUSTOMIZE_DIR="$(realpath "${KUSTOMIZE_DIR}")"
-          RELATIVE_KUSTOMIZE_DIR="$(realpath --relative-to "${REPO_ROOT}" "${ABS_KUSTOMIZE_DIR}")"
-
-          if [[ "${RELATIVE_KUSTOMIZE_DIR}" == ..* ]]; then
+          if [[ "${ABS_KUSTOMIZE_DIR}" != "${REPO_ROOT}" && "${ABS_KUSTOMIZE_DIR}" != "${REPO_ROOT}/"* ]]; then
             echo "::error::KUSTOMIZE_PATH must be within ${REPO_ROOT}"
             exit 1
           fi
@@ -137,34 +136,22 @@ jobs:
           fi
 
           cd "${ABS_KUSTOMIZE_DIR}"
-          if [[ -f "kustomization.yaml" ]]; then
-            KUSTOMIZATION_FILE="kustomization.yaml"
-          elif [[ -f "kustomization.yml" ]]; then
-            KUSTOMIZATION_FILE="kustomization.yml"
-          else
+          if [[ ! -f "kustomization.yaml" && ! -f "kustomization.yml" ]]; then
             echo "::error::Missing kustomization.yaml or kustomization.yml in ${PWD}"
             exit 1
           fi
 
-          cp "${KUSTOMIZATION_FILE}" "${KUSTOMIZATION_FILE}.bak"
-          trap 'mv -f "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"' EXIT
+          cp -R "${ABS_KUSTOMIZE_DIR}/." "${WORK_DIR}/"
+          cd "${WORK_DIR}"
 
           kustomize edit set image "${SOURCE_IMAGE}=${DOCKER_TAG}"
           kustomize build . > "${RENDERED_MANIFEST}"
           kubectl apply -f "${RENDERED_MANIFEST}"
 
-          if [[ -z "${TARGET_NAMESPACE}" ]]; then
-            mapfile -t DEPLOYMENT_NAMESPACES < <(kubectl get deployments -A --no-headers | awk -v name="${DEPLOYMENT_NAME}" '$2==name {print $1}' | sort -u)
-            if [[ "${#DEPLOYMENT_NAMESPACES[@]}" -eq 0 ]]; then
-              echo "::error::Deployment ${DEPLOYMENT_NAME} not found after apply."
-              exit 1
-            fi
-            if [[ "${#DEPLOYMENT_NAMESPACES[@]}" -gt 1 ]]; then
-              echo "::error::Deployment ${DEPLOYMENT_NAME} exists in multiple namespaces (${DEPLOYMENT_NAMESPACES[*]}). Set KUBERNETES_NAMESPACE explicitly."
-              exit 1
-            fi
-            TARGET_NAMESPACE="${DEPLOYMENT_NAMESPACES[0]}"
+          if [[ -n "${TARGET_NAMESPACE}" ]]; then
+            kubectl rollout status deployment/"${DEPLOYMENT_NAME}" --namespace "${TARGET_NAMESPACE}"
+            kubectl get services --namespace "${TARGET_NAMESPACE}" -o wide
+          else
+            kubectl rollout status deployment/"${DEPLOYMENT_NAME}"
+            kubectl get services -o wide
           fi
-
-          kubectl rollout status deployment/"${DEPLOYMENT_NAME}" --namespace "${TARGET_NAMESPACE}"
-          kubectl get services --namespace "${TARGET_NAMESPACE}" -o wide
