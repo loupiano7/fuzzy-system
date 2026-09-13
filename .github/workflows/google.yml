@@ -124,14 +124,16 @@ jobs:
             exit 1
           fi
 
-          ABS_KUSTOMIZE_DIR="$(realpath "${KUSTOMIZE_DIR}")"
-          if [[ "${ABS_KUSTOMIZE_DIR}" != "${REPO_ROOT}" && "${ABS_KUSTOMIZE_DIR}" != "${REPO_ROOT}/"* ]]; then
-            echo "::error::KUSTOMIZE_PATH must be within ${REPO_ROOT}"
+          LOGICAL_KUSTOMIZE_DIR="$(cd "${KUSTOMIZE_DIR}" && pwd)"
+          PHYSICAL_KUSTOMIZE_DIR="$(cd "${KUSTOMIZE_DIR}" && pwd -P)"
+          if [[ "${LOGICAL_KUSTOMIZE_DIR}" != "${PHYSICAL_KUSTOMIZE_DIR}" ]]; then
+            echo "::error::KUSTOMIZE_PATH must not contain symlinks."
             exit 1
           fi
 
-          if [[ -L "${KUSTOMIZE_DIR}" ]]; then
-            echo "::error::KUSTOMIZE_PATH must not be a symlink."
+          ABS_KUSTOMIZE_DIR="$(realpath "${KUSTOMIZE_DIR}")"
+          if [[ "${ABS_KUSTOMIZE_DIR}" != "${REPO_ROOT}" && "${ABS_KUSTOMIZE_DIR}" != "${REPO_ROOT}/"* ]]; then
+            echo "::error::KUSTOMIZE_PATH must be within ${REPO_ROOT}"
             exit 1
           fi
 
