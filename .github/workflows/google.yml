@@ -1,95 +1,90 @@
-# This workflow will build a docker container, publish it to Google Container
-# Registry, and deploy it to GKE when there is a push to the "main"
-# branch.
-#
-# To configure this workflow:
-#
-# 1. Enable the following Google Cloud APIs:
-#
-#    - Artifact Registry (artifactregistry.googleapis.com)
-#    - Google Kubernetes Engine (container.googleapis.com)
-#    - IAM Credentials API (iamcredentials.googleapis.com)
-#
-#    You can learn more about enabling APIs at
-#    https://support.google.com/googleapi/answer/6158841.
-#
-# 2. Ensure that your repository contains the necessary configuration for your
-#    Google Kubernetes Engine cluster, including deployment.yml,
-#    kustomization.yml, service.yml, etc.
-#
-# 3. Create and configure a Workload Identity Provider for GitHub:
-#    https://github.com/google-github-actions/auth#preferred-direct-workload-identity-federation.
-#
-#    Depending on how you authenticate, you will need to grant an IAM principal
-#    permissions on Google Cloud:
-#
-#    - Artifact Registry Administrator (roles/artifactregistry.admin)
-#    - Kubernetes Engine Developer (roles/container.developer)
-#
-#    You can learn more about setting IAM permissions at
-#    https://cloud.google.com/iam/docs/manage-access-other-resources
-#
-# 5. Change the values in the "env" block to match your values.
-
-name: 'Build and Deploy to GKE'
+name: Build and Deploy to GKE
 
 on:
   push:
     branches:
-      - '"main"'
+      - main
+  workflow_dispatch:
 
 env:
-  PROJECT_ID: 'my-project' # TODO: update to your Google Cloud project ID
-  GAR_LOCATION: 'us-central1' # TODO: update to your region
-  GKE_CLUSTER: 'cluster-1' # TODO: update to your cluster name
-  GKE_ZONE: 'us-central1-c' # TODO: update to your cluster zone
-  DEPLOYMENT_NAME: 'gke-test' # TODO: update to your deployment name
-  REPOSITORY: 'samples' # TODO: update to your Artifact Registry docker repository name
-  IMAGE: 'static-site'
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider' # TODO: update to your workload identity provider
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GAR_LOCATION: ${{ vars.GAR_LOCATION }}
+  GKE_CLUSTER: ${{ vars.GKE_CLUSTER }}
+  GKE_LOCATION: ${{ vars.GKE_LOCATION }}
+  DEPLOYMENT_NAME: ${{ vars.GKE_DEPLOYMENT_NAME }}
+  REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+  IMAGE: ${{ vars.IMAGE_NAME }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+  KUSTOMIZE_PATH: ${{ vars.KUSTOMIZE_PATH }}
 
 jobs:
   setup-build-publish-deploy:
-    name: 'Setup, Build, Publish, and Deploy'
-    runs-on: 'ubuntu-latest'
-    environment: 'production'
+    name: Setup, Build, Publish, and Deploy
+    runs-on: ubuntu-latest
+    environment: production
 
     permissions:
-      contents: 'read'
-      id-token: 'write'
+      contents: read
+      id-token: write
 
     steps:
-      - name: 'Checkout'
+      - name: Checkout
         uses: 'actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332' # actions/checkout@v4
 
-      # Configure Workload Identity Federation and generate an access token.
-      #
-      # See https://github.com/google-github-actions/auth for more options,
-      # including authenticating via a JSON credentials file.
-      - id: 'auth'
-        name: 'Authenticate to Google Cloud'
+      - name: Validate workflow configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${KUSTOMIZE_PATH}" ]]; then
+            echo "KUSTOMIZE_PATH=." >> "${GITHUB_ENV}"
+          fi
+
+          required_vars=(
+            PROJECT_ID
+            GAR_LOCATION
+            GKE_CLUSTER
+            GKE_LOCATION
+            DEPLOYMENT_NAME
+            REPOSITORY
+            IMAGE
+            WORKLOAD_IDENTITY_PROVIDER
+            GCP_SERVICE_ACCOUNT
+          )
+
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name}" ]]; then
+              echo "::error::Missing required repository variable: ${var_name}"
+              exit 1
+            fi
+          done
+
+      - id: auth
+        name: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@f112390a2df9932162083945e46d439060d66ec2' # google-github-actions/auth@v2
         with:
           workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER }}'
+          service_account: '${{ env.GCP_SERVICE_ACCOUNT }}'
+          token_format: access_token
 
-      # Authenticate Docker to Google Cloud Artifact Registry
-      - name: 'Docker Auth'
+      - name: Docker Auth
         uses: 'docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567' # docker/login-action@v3
         with:
-          username: 'oauth2accesstoken'
-          password: '${{ steps.auth.outputs.auth_token }}'
+          username: oauth2accesstoken
+          password: '${{ steps.auth.outputs.access_token }}'
           registry: '${{ env.GAR_LOCATION }}-docker.pkg.dev'
 
-      # Get the GKE credentials so we can deploy to the cluster
-      - name: 'Set up GKE credentials'
+      - name: Set up GKE credentials
         uses: 'google-github-actions/get-gke-credentials@6051de21ad50fbb1767bc93c11357a49082ad116' # google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: '${{ env.GKE_CLUSTER }}'
-          location: '${{ env.GKE_ZONE }}'
+          location: '${{ env.GKE_LOCATION }}'
 
-      # Build the Docker image
-      - name: 'Build and push Docker container'
+      - name: Build and push Docker container
+        shell: bash
         run: |-
+          set -euo pipefail
           DOCKER_TAG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
 
           docker build \
@@ -100,17 +95,29 @@ jobs:
 
           docker push "${DOCKER_TAG}"
 
-      # Set up kustomize
-      - name: 'Set up Kustomize'
+      - name: Set up Kustomize
+        shell: bash
         run: |-
-          curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
-          chmod u+x ./kustomize
+          set -euo pipefail
+          KUSTOMIZE_VERSION="5.4.3"
+          curl -sSfL -o /tmp/kustomize.tar.gz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp
+          install -m 0755 /tmp/kustomize "${RUNNER_TEMP}/kustomize"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
 
-      # Deploy the Docker image to the GKE cluster
-      - name: 'Deploy to GKE'
+      - name: Deploy to GKE
+        shell: bash
         run: |-
-          # replacing the image name in the k8s template
-          ./kustomize edit set image LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE:TAG=$GAR_LOCATION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE:$GITHUB_SHA
-          ./kustomize build . | kubectl apply -f -
-          kubectl rollout status deployment/$DEPLOYMENT_NAME
+          set -euo pipefail
+          DOCKER_TAG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
+
+          cd "${KUSTOMIZE_PATH:-.}"
+          if [[ ! -f "kustomization.yaml" && ! -f "kustomization.yml" ]]; then
+            echo "::error::Missing kustomization.yaml in ${PWD}"
+            exit 1
+          fi
+
+          kustomize edit set image "${IMAGE}=${DOCKER_TAG}"
+          kustomize build . | kubectl apply -f -
+          kubectl rollout status deployment/"${DEPLOYMENT_NAME}"
           kubectl get services -o wide
