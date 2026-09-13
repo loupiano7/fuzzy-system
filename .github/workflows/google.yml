@@ -148,12 +148,13 @@ jobs:
 
           kustomize edit set image "${SOURCE_IMAGE}=${DOCKER_TAG}"
           kustomize build . > "${RENDERED_MANIFEST}"
-          kubectl apply -f "${RENDERED_MANIFEST}"
 
           if [[ -n "${TARGET_NAMESPACE}" ]]; then
+            kubectl apply --namespace "${TARGET_NAMESPACE}" -f "${RENDERED_MANIFEST}"
             kubectl rollout status deployment/"${DEPLOYMENT_NAME}" --namespace "${TARGET_NAMESPACE}"
             kubectl get services --namespace "${TARGET_NAMESPACE}" -o wide
           else
+            kubectl apply -f "${RENDERED_MANIFEST}"
             kubectl rollout status deployment/"${DEPLOYMENT_NAME}"
             kubectl get services -o wide
           fi
