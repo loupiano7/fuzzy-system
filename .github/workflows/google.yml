@@ -17,6 +17,7 @@ env:
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
   GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
   KUSTOMIZE_PATH: ${{ vars.KUSTOMIZE_PATH }}
+  KUBERNETES_NAMESPACE: ${{ vars.KUBERNETES_NAMESPACE }}
 
 jobs:
   setup-build-publish-deploy:
@@ -112,6 +113,7 @@ jobs:
           DOCKER_TAG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
           RENDERED_MANIFEST="${RUNNER_TEMP}/gke-rendered-manifest.yaml"
           WORK_DIR="$(mktemp -d)"
+          TARGET_NAMESPACE="${KUBERNETES_NAMESPACE:-default}"
 
           cd "${KUSTOMIZE_PATH:-.}"
           if [[ ! -f "kustomization.yaml" && ! -f "kustomization.yml" ]]; then
@@ -119,13 +121,12 @@ jobs:
             exit 1
           fi
 
-          cp -R . "${WORK_DIR}/"
+          tar --exclude=.git -cf - . | tar -xf - -C "${WORK_DIR}"
           cd "${WORK_DIR}"
 
           kustomize edit set image "${IMAGE}=${DOCKER_TAG}"
           kustomize build . > "${RENDERED_MANIFEST}"
-          kubectl apply -f "${RENDERED_MANIFEST}"
+          kubectl apply --namespace "${TARGET_NAMESPACE}" -f "${RENDERED_MANIFEST}"
 
-          DEPLOYMENT_NAMESPACE="$(kubectl get deployment "${DEPLOYMENT_NAME}" -o jsonpath='{.metadata.namespace}')"
-          kubectl rollout status deployment/"${DEPLOYMENT_NAME}" --namespace "${DEPLOYMENT_NAMESPACE}"
-          kubectl get services --namespace "${DEPLOYMENT_NAMESPACE}" -o wide
+          kubectl rollout status deployment/"${DEPLOYMENT_NAME}" --namespace "${TARGET_NAMESPACE}"
+          kubectl get services --namespace "${TARGET_NAMESPACE}" -o wide

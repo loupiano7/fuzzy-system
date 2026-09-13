@@ -15,6 +15,7 @@ The workflow at `.github/workflows/google.yml` expects the following repository 
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - `GCP_SERVICE_ACCOUNT`
 - `KUSTOMIZE_PATH` (optional, defaults to `.`)
+- `KUBERNETES_NAMESPACE` (optional, defaults to `default`)
 
 Required repository contents for deployment:
 
