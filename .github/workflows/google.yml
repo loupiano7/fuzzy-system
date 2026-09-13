@@ -115,6 +115,11 @@ jobs:
           WORK_DIR="$(mktemp -d)"
           TARGET_NAMESPACE="${KUBERNETES_NAMESPACE:-default}"
 
+          if [[ ! -d "${KUSTOMIZE_PATH:-.}" ]]; then
+            echo "::error::KUSTOMIZE_PATH does not exist: ${KUSTOMIZE_PATH:-.}"
+            exit 1
+          fi
+
           cd "${KUSTOMIZE_PATH:-.}"
           if [[ ! -f "kustomization.yaml" && ! -f "kustomization.yml" ]]; then
             echo "::error::Missing kustomization.yaml or kustomization.yml in ${PWD}"
