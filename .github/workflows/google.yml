@@ -3,6 +3,7 @@ name: 'Build and Deploy to GKE'
 on:
   push:
     branches:
+  workflow_dispatch:
       - main
 
 env:
