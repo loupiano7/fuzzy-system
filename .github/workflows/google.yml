@@ -3,8 +3,8 @@ name: 'Build and Deploy to GKE'
 on:
   push:
     branches:
-  workflow_dispatch:
       - main
+  workflow_dispatch:
 
 env:
   PROJECT_ID: 'private-dns-setup'
